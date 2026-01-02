@@ -1,9 +1,17 @@
+# .gitignore
 __pycache__/
-*.py[cod]
+*.pyc
+# .gitignore
+__pycache__/
+*.pyc
 venv/
 .env
 .DS_Store
+
+# Dossier de travail temporaire (ne pas récupérer les modifications des étudiants ici)
+sandbox/
+
+# LOGS : On ignore tout le dossier logs...
 logs/*
-!logs/.gitkeep
-sandbox/*
-!sandbox/.gitkeep
+# ...SAUF le fichier de données final qu'on veut récupérer
+!logs/experiment_data.json
