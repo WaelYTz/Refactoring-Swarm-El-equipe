@@ -16,19 +16,33 @@ class ActionType(str, Enum):
     DEBUG = "DEBUG"             # Analyse d'erreurs d'exécution
     FIX = "FIX"                 # Application de correctifs
 
-def log_experiment(agent_name: str, model_used: str, action: ActionType, details: dict, status: str):
+def log_experiment(agent_name: str, model_used: str, action: ActionType, details: dict, status: str = "SUCCESS"):
     """
     Enregistre une interaction d'agent pour l'analyse scientifique.
 
     Args:
         agent_name (str): Nom de l'agent (ex: "Auditor", "Fixer").
-        model_used (str): Modèle LLM utilisé (ex: "gemini-1.5-flash").
+        model_used (str): Modèle LLM utilisé (ex: "gemini-1.5-flash", "gemini-2.5-flash").
         action (ActionType): Le type d'action effectué (utiliser l'Enum ActionType).
         details (dict): Dictionnaire contenant les détails. DOIT contenir 'input_prompt' et 'output_response'.
-        status (str): "SUCCESS" ou "FAILURE".
+        status (str): "SUCCESS" ou "FAILURE" (défaut: "SUCCESS").
 
     Raises:
         ValueError: Si les champs obligatoires sont manquants dans 'details' ou si l'action est invalide.
+    
+    Example:
+        >>> log_experiment(
+        ...     agent_name="Auditor_Agent",
+        ...     model_used="gemini-2.5-flash",
+        ...     action=ActionType.ANALYSIS,
+        ...     details={
+        ...         "file_analyzed": "messy_code.py",
+        ...         "input_prompt": "Analyze this code...",
+        ...         "output_response": "Found 3 issues...",
+        ...         "issues_found": 3
+        ...     },
+        ...     status="SUCCESS"
+        ... )
     """
     
     # --- 1. VALIDATION DU TYPE D'ACTION ---
@@ -44,15 +58,28 @@ def log_experiment(agent_name: str, model_used: str, action: ActionType, details
     # --- 2. VALIDATION STRICTE DES DONNÉES (Prompts) ---
     # Pour l'analyse scientifique, nous avons absolument besoin du prompt et de la réponse
     # pour les actions impliquant une interaction majeure avec le code.
-    if action_str in [ActionType.ANALYSIS, ActionType.GENERATION, ActionType.DEBUG, ActionType.FIX]:
+    if action_str in [ActionType.ANALYSIS.value, ActionType.GENERATION.value, ActionType.DEBUG.value, ActionType.FIX.value]:
         required_keys = ["input_prompt", "output_response"]
-        missing_keys = [key for key in required_keys if key not in details]
+        missing_keys = [key for key in required_keys if key not in details or not details[key]]
         
         if missing_keys:
             raise ValueError(
                 f"❌ Erreur de Logging (Agent: {agent_name}) : "
-                f"Les champs {missing_keys} sont manquants dans le dictionnaire 'details'. "
+                f"Les champs {missing_keys} sont manquants ou vides dans le dictionnaire 'details'. "
                 f"Ils sont OBLIGATOIRES pour valider le TP."
+            )
+        
+        # Validation supplémentaire: les prompts ne doivent pas être vides
+        if not isinstance(details.get("input_prompt"), str) or len(details["input_prompt"].strip()) < 10:
+            raise ValueError(
+                f"❌ Erreur de Logging (Agent: {agent_name}) : "
+                f"'input_prompt' doit être une chaîne de caractères non vide (min 10 caractères)."
+            )
+        
+        if not isinstance(details.get("output_response"), str) or len(details["output_response"].strip()) < 5:
+            raise ValueError(
+                f"❌ Erreur de Logging (Agent: {agent_name}) : "
+                f"'output_response' doit être une chaîne de caractères non vide (min 5 caractères)."
             )
 
     # --- 3. PRÉPARATION DE L'ENTRÉE ---
