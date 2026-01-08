@@ -1,7 +1,7 @@
 """
 Listener (Auditor) Agent Prompts
 ================================
-System prompts and templates for the code analysis agent.
+Syetstem prompts and templates for the code analysis agent.
 
 The Listener agent is responsible for:
 - Analyzing source code for issues (bugs, code smells, violations)
