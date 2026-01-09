@@ -40,7 +40,13 @@ Author: Yacine (Prompt Engineer)
 
 # Imports will be added as modules are implemented
 from src.prompts.listener_prompts import ListenerPrompts, PromptVersion, validate_issue_response
-# from src.prompts.corrector_prompts import CorrectorPrompts
+from src.prompts.corrector_prompts import (
+    CorrectorPrompts, 
+    CorrectorPromptVersion,
+    validate_correction_response,
+    validate_python_syntax,
+    extract_code_from_response
+)
 # from src.prompts.validator_prompts import ValidatorPrompts
 # from src.prompts.context_manager import ContextManager
 
@@ -48,7 +54,11 @@ __all__ = [
     "ListenerPrompts",
     "PromptVersion",
     "validate_issue_response",
-    # "CorrectorPrompts", 
+    "CorrectorPrompts",
+    "CorrectorPromptVersion",
+    "validate_correction_response",
+    "validate_python_syntax",
+    "extract_code_from_response",
     # "ValidatorPrompts",
     # "ContextManager",
 ]
