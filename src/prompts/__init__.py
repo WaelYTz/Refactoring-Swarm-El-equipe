@@ -47,7 +47,14 @@ from src.prompts.corrector_prompts import (
     validate_python_syntax,
     extract_code_from_response
 )
-# from src.prompts.validator_prompts import ValidatorPrompts
+from src.prompts.validator_prompts import (
+    ValidatorPrompts,
+    ValidatorPromptVersion,
+    validate_validation_response,
+    extract_error_logs,
+    extract_generated_tests,
+    should_trigger_self_healing
+)
 # from src.prompts.context_manager import ContextManager
 
 __all__ = [
@@ -59,7 +66,12 @@ __all__ = [
     "validate_correction_response",
     "validate_python_syntax",
     "extract_code_from_response",
-    # "ValidatorPrompts",
+    "ValidatorPrompts",
+    "ValidatorPromptVersion",
+    "validate_validation_response",
+    "extract_error_logs",
+    "extract_generated_tests",
+    "should_trigger_self_healing",
     # "ContextManager",
 ]
 
