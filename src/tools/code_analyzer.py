@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 from typing import Optional, TypedDict
 
 # Configure module logger
@@ -256,7 +257,10 @@ def run_pylint(filepath: str) -> PylintResultDict:
         )
 
     # Command for JSON output (issues)
+    # Use sys.executable -m pylint for proper venv support on Windows
     json_command = [
+        sys.executable,
+        "-m",
         "pylint",
         "--output-format=json",
         "--exit-zero",
@@ -265,6 +269,8 @@ def run_pylint(filepath: str) -> PylintResultDict:
 
     # Command for text output (score extraction)
     score_command = [
+        sys.executable,
+        "-m",
         "pylint",
         "--output-format=text",
         "--score=y",
@@ -358,7 +364,7 @@ def get_pylint_version() -> Optional[str]:
     """
     try:
         result = subprocess.run(
-            ["pylint", "--version"],
+            [sys.executable, "-m", "pylint", "--version"],
             capture_output=True,
             text=True,
             timeout=10,
