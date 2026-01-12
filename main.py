@@ -74,6 +74,9 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from dotenv import load_dotenv
 
+# Import agents
+from src.agents import ListenerAgent, CorrectorAgentWrapper, ValidatorAgent
+
 load_dotenv()
 
 
@@ -466,10 +469,16 @@ def main():
     # Initialize orchestrator
     orchestrator = RelayOrchestrator(context, verbose=args.verbose)
     
-    # TODO: Team members will register their agents here
-    # orchestrator.register_agent(AgentRole.LISTENER, ListenerAgent())
-    # orchestrator.register_agent(AgentRole.CORRECTOR, CorrectorAgent())
-    # orchestrator.register_agent(AgentRole.VALIDATOR, ValidatorAgent())
+    # Register agents
+    try:
+        orchestrator.register_agent(AgentRole.LISTENER, ListenerAgent(verbose=args.verbose))
+        orchestrator.register_agent(AgentRole.CORRECTOR, CorrectorAgentWrapper(verbose=args.verbose))
+        orchestrator.register_agent(AgentRole.VALIDATOR, ValidatorAgent(verbose=args.verbose))
+        print("✅ All agents registered successfully")
+    except Exception as e:
+        print(f"❌ Error: Failed to register agents: {e}")
+        print(f"   Make sure GOOGLE_API_KEY is set in .env file")
+        sys.exit(1)
     
     # Run pipeline (unless dry_run)
     if args.dry_run:
