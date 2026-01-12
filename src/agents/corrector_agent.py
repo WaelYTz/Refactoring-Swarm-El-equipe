@@ -1,31 +1,70 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 # src/agents/corrector_agent.py
 """
-Corrector Agent (The Fixer) for The Refactoring Swarm.
+Corrector Agent (The Fixer) - The Refactoring Swarm
+=====================================================
+IGL Lab 2025-2026 - Multi-Agent Refactoring System
 
-This agent is responsible for transforming buggy Python code into clean,
-functional, and well-documented code. It participates in the Self-Healing
-Loop with the Judge agent, iteratively fixing code until all tests pass.
+This agent is responsible for fixing buggy Python code using Google's Gemini API
+via LangChain (consistent with ListenerAgent and ValidatorAgent).
 
-Role: The Fixer 🔧
-Project: The Refactoring Swarm
+It operates as "The Fixer" in the swarm, receiving flagged code from The Auditor
+and returning corrected code to The Judge for validation.
+
+Key Features:
+- Uses LangChain for LLM integration (langchain-google-genai)
+- Uses prompts from src/prompts/corrector_prompts.py (designed by Prompt Engineer Yacine)
+- Self-healing loop with configurable max iterations
+- Structured JSON response parsing
+- Scientific logging for A/B testing and analysis
+- Environment variable support for configuration
+- Fully compatible with BaseAgent interface via CorrectorAgentWrapper
+
+Architecture (Execution Graph):
+    LISTENER (Auditor) → CORRECTOR (this agent) → VALIDATOR (Judge)
+                              ↑_________|
+                         Self-Healing Loop
+                    (error_logs from Judge back to Corrector)
+
+IMPORTANT - LOGGING PROTOCOL (MANDATORY per course requirements):
+    Every LLM interaction MUST be logged using log_experiment with:
+    - input_prompt: The exact prompt sent to the LLM (minimum 10 characters)
+    - output_response: The exact response from the LLM (minimum 5 characters)
+
+    ActionType values to use:
+    - ActionType.ANALYSIS for code analysis
+    - ActionType.FIX for code corrections
+    - ActionType.DEBUG for debugging
+    - ActionType.GENERATION for code generation
+
+Constructor Compatibility:
+    This class is designed to be instantiated WITHOUT api_key parameter.
+    API key is read from environment variable GOOGLE_API_KEY.
+    
+    Example from corrector_wrapper.py:
+        self._corrector = CorrectorAgent(model_name=model, max_iterations=10)
+
+Author: Corrector Agent Team Member
 Course: IGL Lab 2025-2026 - ESI Algiers
-
-Author: Toolsmith Team
-Version: 1.0.0
+Version: 2.1.0 (LangChain version)
 """
 
 import json
+import logging
 import os
 import re
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
 
-import google.generativeai as genai
 from dotenv import load_dotenv
 
-from src.utils.logger import log_experiment, ActionType
+# LangChain for LLM integration (consistent with other agents)
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.messages import SystemMessage, HumanMessage
+
+# Import prompts from corrector_prompts.py (by Prompt Engineer Yacine)
 from src.prompts.corrector_prompts import (
     CorrectorPrompts,
     CorrectorPromptVersion,
@@ -34,6 +73,11 @@ from src.prompts.corrector_prompts import (
     extract_code_from_response,
 )
 from src.prompts.context_manager import optimize_context
+
+# Import logging utilities (MANDATORY per course requirements)
+from src.utils.logger import log_experiment, ActionType
+
+# Import tools for sandbox operations
 from src.tools import (
     SandboxValidator,
     SecurityError,
@@ -42,125 +86,137 @@ from src.tools import (
 )
 from src.tools.code_analyzer import run_pylint, PylintResultDict
 
-# Load environment variables from .env file
+# Load environment variables from .env file at module load
 load_dotenv()
 
-# Get API configuration from environment
+# Configure module logger
+logger = logging.getLogger(__name__)
 
 
 class CorrectorAgent:
     """
-    The Corrector Agent (The Fixer) that transforms buggy code into clean code.
+    The Corrector Agent (The Fixer) transforms buggy code into clean code.
+
+    This agent uses LangChain for LLM integration, consistent with
+    ListenerAgent and ValidatorAgent.
 
     This agent:
-    - Reads refactoring plans from the Auditor agent
-    - Modifies code file by file to correct errors
-    - Participates in Self-Healing Loop with Judge agent
-    - Logs all interactions for scientific analysis
+    - Receives refactoring plans from the Listener (Auditor) agent
+    - Modifies code file by file to correct errors using Gemini LLM
+    - Participates in Self-Healing Loop with Validator (Judge) agent
+    - Logs ALL interactions for scientific analysis (MANDATORY)
+
+    The agent reads configuration from environment variables:
+    - GOOGLE_API_KEY: Google Gemini API key (REQUIRED per course requirements)
+    - GEMINI_MODEL: Model name (default: "gemini-2.5-flash")
+    - MAX_ITERATIONS: Max self-healing iterations (default: 10)
 
     Attributes:
-        api_key: Google Gemini API key for LLM access.
-        model_name: Name of the Gemini model to use.
-        model: Configured Gemini generative model instance.
-        max_iterations: Maximum fix attempts before giving up.
-        iteration_count: Current iteration in self-healing loop.
-
-    Example:
-        >>> corrector = CorrectorAgent(
-        ...     api_key="your-api-key",
-        ...     model_name="gemini-2.0-flash-exp"
-        ... )
-        >>> fixed_code = corrector.fix_code(
-        ...     file_path="calculator.py",
-        ...     original_code="def add(a,b): return a-b",
-        ...     audit_findings={"issues": ["Wrong operator"]}
-        ... )
+        model_name (str): Gemini model identifier
+        max_iterations (int): Maximum self-healing loop iterations
+        iteration_count (int): Current iteration counter
+        sandbox (SandboxValidator): Optional sandbox for file operations
+    
+    Example Usage:
+        # Standard initialization (reads API key from environment)
+        corrector = CorrectorAgent(model_name="gemini-2.5-flash", max_iterations=10)
+        
+        # Fix code
+        fixed_code = corrector.fix_code(
+            file_path="src/buggy.py",
+            original_code="def add(a, b):\\n    return a - b  # Bug here",
+            audit_findings={"issues": [{"type": "logic_error", "description": "Wrong operator"}]}
+        )
     """
-
-    # Generation configuration for consistent, high-quality output
-    GENERATION_CONFIG = {
-        "temperature": 0.2,  # Low temperature for deterministic fixes
-        "top_p": 0.8,
-        "top_k": 40,
-        "max_output_tokens": 8192,
-    }
-
-    # Safety settings - allow code generation
-    SAFETY_SETTINGS = [
-        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-    ]
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
         model_name: Optional[str] = None,
         max_iterations: Optional[int] = None,
-        sandbox_dir: Optional[str] = None
+        sandbox_dir: Optional[str] = None,
+        api_key: Optional[str] = None,
     ) -> None:
         """
-        Initialize the Corrector Agent with Gemini API configuration.
+        Initialize the Corrector Agent.
+
+        IMPORTANT: This constructor is designed to work without api_key parameter.
+        The API key is read from environment variables (GOOGLE_API_KEY per course requirements).
+        This is required for compatibility with CorrectorAgentWrapper.
 
         Args:
-            api_key: Google Gemini API key. If None, reads from GEMINI_API_KEY env var.
-            model_name: Name of the Gemini model to use. If None, reads from GEMINI_MODEL env var.
-                Default: "gemini-2.5-flash"
-            max_iterations: Maximum iterations for self-healing loop. If None, reads from MAX_ITERATIONS env var.
-                Default: 10
-            sandbox_dir: Directory for safe file operations. If None, uses current directory.
+            model_name: Gemini model to use. Default reads from GEMINI_MODEL env var
+                       or falls back to "gemini-2.5-flash".
+            max_iterations: Maximum self-healing loop iterations. Default reads from
+                           MAX_ITERATIONS env var or falls back to 10.
+            sandbox_dir: Optional directory for sandbox file operations.
+            api_key: Optional API key override. If None, reads from GOOGLE_API_KEY
+                    (per course requirements) or GEMINI_API_KEY (fallback).
 
         Raises:
-            ValueError: If API key is not provided and not in environment.
+            ValueError: If no API key is available (not in env and not provided).
         """
-        # Load API key from environment or parameter
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        # Load API key from environment (primary) or parameter (fallback)
+        # Course requirements specify GOOGLE_API_KEY
+        self.api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError(
-                "API key is required. Provide it as parameter or set GEMINI_API_KEY in .env file"
+                "API key is required. Set GOOGLE_API_KEY in .env file or provide as parameter."
             )
 
-        # Load model name from environment or parameter
+        # Load model name from parameter or environment
         self.model_name = model_name or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
-        # Load max iterations from environment or parameter
-        max_iter_env = os.getenv("MAX_ITERATIONS")
+        # Load max iterations from parameter or environment
         if max_iterations is not None:
             self.max_iterations = max_iterations
-        elif max_iter_env:
-            self.max_iterations = int(max_iter_env)
         else:
-            self.max_iterations = 10
+            env_max_iter = os.getenv("MAX_ITERATIONS")
+            self.max_iterations = int(env_max_iter) if env_max_iter else 10
 
-        # Initialize sandbox for secure file operations
-        self.sandbox = SandboxValidator(sandbox_dir or os.getcwd()) if sandbox_dir else None
+        # Initialize iteration counter
         self.iteration_count = 0
 
-        # Configure Gemini API
-        genai.configure(api_key=self.api_key)
+        # Initialize sandbox for secure file operations (optional)
+        self.sandbox = SandboxValidator(sandbox_dir) if sandbox_dir else None
 
-        # Initialize the model
-        self.model = genai.GenerativeModel(
-            model_name=self.model_name,
-            generation_config=self.GENERATION_CONFIG,
-            safety_settings=self.SAFETY_SETTINGS,
-        )
+        # Initialize LangChain LLM (consistent with ListenerAgent and ValidatorAgent)
+        self._llm: Optional[ChatGoogleGenerativeAI] = None
+        self._init_llm()
 
-        # Log agent initialization
+        # Log agent initialization (MANDATORY per course requirements)
         log_experiment(
             agent_name="Corrector",
             model_used=self.model_name,
             action=ActionType.FIX,
             details={
-                "input_prompt": "Agent initialization",
-                "output_response": f"CorrectorAgent initialized with model {self.model_name}",
-                "event": "agent_init",
+                "input_prompt": f"Initialize CorrectorAgent with model {self.model_name}",
+                "output_response": f"Agent initialized successfully. Max iterations: {self.max_iterations}",
+                "event": "agent_initialization",
                 "model": self.model_name,
                 "max_iterations": self.max_iterations,
+                "has_sandbox": self.sandbox is not None,
             },
             status="SUCCESS"
         )
+
+    def _init_llm(self) -> None:
+        """
+        Initialize the Google Gemini LLM via LangChain.
+        
+        Uses the same pattern as ListenerAgent and ValidatorAgent for consistency.
+        """
+        try:
+            self._llm = ChatGoogleGenerativeAI(
+                model=self.model_name,
+                google_api_key=self.api_key,
+                temperature=0.2,  # Low temperature for deterministic code fixes
+                max_output_tokens=8192,
+                convert_system_message_to_human=True,
+            )
+            logger.info("Corrector LLM initialized: model=%s", self.model_name)
+        except Exception as e:
+            logger.exception("Failed to initialize LLM: %s", e)
+            raise ValueError(f"Failed to initialize Gemini LLM: {e}") from e
 
     def get_system_prompt(
         self,
@@ -168,6 +224,9 @@ class CorrectorAgent:
     ) -> str:
         """
         Get the system prompt from corrector_prompts.py.
+
+        Uses prompts designed by Prompt Engineer Yacine for optimal
+        LLM performance and minimal hallucination.
 
         Args:
             version: Prompt version for A/B testing.
@@ -187,7 +246,7 @@ class CorrectorAgent:
         """
         Build the correction prompt using templates from corrector_prompts.py.
 
-        Uses the professionally designed prompts from the Prompt Engineer (Yacine)
+        Uses professionally designed prompts from the Prompt Engineer (Yacine)
         to minimize hallucinations and optimize token usage.
 
         Args:
@@ -203,7 +262,7 @@ class CorrectorAgent:
         """
         # Extract issues from audit findings
         issues = audit_findings.get("issues", [])
-        
+
         # Optimize code for LLM (remove comments/docstrings to save tokens)
         optimized_code = optimize_context(original_code)
 
@@ -237,15 +296,14 @@ class CorrectorAgent:
             Parsed JSON dictionary.
 
         Raises:
-            ValueError: If JSON parsing fails.
+            ValueError: If JSON parsing fails after all attempts.
         """
-        # Try to find JSON in the response
         text = response_text.strip()
 
         # Try to extract JSON from markdown code blocks
         json_patterns = [
-            r'```json\s*\n(.*?)```',
-            r'```\s*\n(\{.*?\})```',
+            r'```json\s*\n?(.*?)```',
+            r'```\s*\n?(\{.*?\})```',
             r'(\{[\s\S]*\})'
         ]
 
@@ -268,13 +326,13 @@ class CorrectorAgent:
         Extract Python code from LLM response.
 
         Uses extract_code_from_response from corrector_prompts.py for JSON responses,
-        with fallback to direct code extraction.
+        with fallback to direct code extraction from markdown blocks.
 
         Args:
             response: Raw response from the LLM.
 
         Returns:
-            Extracted Python code.
+            Extracted Python code string.
         """
         if not response or not response.strip():
             return ""
@@ -302,12 +360,12 @@ class CorrectorAgent:
             return match.group(1).strip()
 
         # Last resort: return as-is if it looks like Python code
-        if text.startswith(('import ', 'from ', 'def ', 'class ', '#', '"""')):
+        if text.startswith(('import ', 'from ', 'def ', 'class ', '#', '"""', "'''")):
             return text
 
         return text
 
-    def _validate_python_syntax(self, code: str) -> tuple[bool, Optional[str]]:
+    def _validate_python_syntax(self, code: str) -> Tuple[bool, Optional[str]]:
         """
         Validate Python syntax using validate_python_syntax from corrector_prompts.py.
 
@@ -330,15 +388,15 @@ class CorrectorAgent:
         Main method to fix buggy code using LLM.
 
         This method:
-        1. Builds an optimized correction prompt
-        2. Sends request to Gemini API
+        1. Builds an optimized correction prompt using corrector_prompts.py
+        2. Sends request to Gemini API via LangChain with retry logic
         3. Extracts and validates the fixed code
-        4. Logs the interaction for scientific analysis
+        4. Logs all interactions for scientific analysis (MANDATORY)
 
         Args:
             file_path: Path to the file being corrected.
             original_code: The buggy source code to fix.
-            audit_findings: Dictionary containing audit results.
+            audit_findings: Dictionary containing audit results from Auditor.
             error_logs: Optional error logs from failed tests
                 (provided during self-healing iterations).
 
@@ -356,18 +414,19 @@ class CorrectorAgent:
         if error_logs:
             self.iteration_count += 1
             if self.iteration_count > self.max_iterations:
+                # Log max iterations exceeded (MANDATORY)
                 log_experiment(
                     agent_name="Corrector",
                     model_used=self.model_name,
                     action=ActionType.FIX,
                     details={
-                        "input_prompt": "Max iterations reached",
-                        "output_response": "Stopping self-healing loop",
+                        "input_prompt": f"Self-healing attempt {self.iteration_count} for {file_path}",
+                        "output_response": f"STOPPED: Max iterations ({self.max_iterations}) exceeded",
                         "event": "max_iterations_exceeded",
                         "file_path": file_path,
                         "iteration": self.iteration_count,
                     },
-                    status="FAILED"
+                    status="FAILURE"
                 )
                 raise RuntimeError(
                     f"Max iterations ({self.max_iterations}) exceeded in self-healing loop"
@@ -387,18 +446,18 @@ class CorrectorAgent:
             error_logs=error_logs
         )
 
-        # Combine system prompt with user prompt
+        # Full prompt for logging
         full_prompt = f"{system_prompt}\n\n{correction_prompt}"
 
-        # Log the prompt (REQUIRED for experiment data)
+        # Log the prompt being sent (MANDATORY per course requirements)
         log_experiment(
             agent_name="Corrector",
             model_used=self.model_name,
             action=ActionType.FIX,
             details={
-                "input_prompt": full_prompt,
-                "output_response": "pending",
-                "event": "correction_request",
+                "input_prompt": full_prompt[:2000] + "..." if len(full_prompt) > 2000 else full_prompt,
+                "output_response": "[PENDING - Awaiting LLM response]",
+                "event": "correction_request_sent",
                 "file_path": file_path,
                 "iteration": self.iteration_count,
                 "has_error_logs": error_logs is not None,
@@ -407,22 +466,26 @@ class CorrectorAgent:
             status="PENDING"
         )
 
-        # Call Gemini API with retry logic
-        fixed_code = self._call_llm_with_retry(full_prompt, file_path)
+        # Call Gemini API via LangChain with retry logic
+        fixed_code = self._call_llm_with_retry(system_prompt, correction_prompt, file_path)
 
         return fixed_code
 
     def _call_llm_with_retry(
         self,
-        llm_prompt: str,
+        system_prompt: str,
+        user_prompt: str,
         file_path: str,
         max_retries: int = 3
     ) -> str:
         """
-        Call the LLM with retry logic for robustness.
+        Call the LLM via LangChain with retry logic for robustness.
+
+        Uses the same LangChain pattern as ListenerAgent and ValidatorAgent.
 
         Args:
-            llm_prompt: The prompt to send to the LLM.
+            system_prompt: The system prompt for the LLM.
+            user_prompt: The user prompt with code and issues.
             file_path: Path to file being fixed (for logging).
             max_retries: Maximum number of retry attempts.
 
@@ -433,37 +496,40 @@ class CorrectorAgent:
             RuntimeError: If all retries fail.
         """
         last_error: Optional[BaseException] = None
+        full_prompt = f"{system_prompt}\n\n{user_prompt}"
 
         for attempt in range(max_retries):
             try:
-                # Call Gemini API
-                response = self.model.generate_content(llm_prompt)
+                # Build LangChain messages (same pattern as other agents)
+                messages = [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=user_prompt),
+                ]
+
+                # Call LLM via LangChain
+                response = self._llm.invoke(messages)
 
                 # Extract text from response
-                if not response.text:
+                raw_response = response.content
+                if not raw_response:
                     raise ValueError("Empty response from LLM")
-
-                raw_response = response.text
 
                 # Extract code from response
                 fixed_code = self._extract_code_from_response(raw_response)
 
                 if not fixed_code:
-                    raise ValueError("No code extracted from response")
+                    raise ValueError("No code extracted from LLM response")
 
-                # Validate syntax
+                # Validate Python syntax
                 is_valid, error_msg = self._validate_python_syntax(fixed_code)
 
                 if not is_valid:
                     raise ValueError(f"Invalid Python syntax: {error_msg}")
 
-                # Log successful response (REQUIRED for experiment data)
-                truncated_prompt = (
-                    llm_prompt[:500] + "..." if len(llm_prompt) > 500 else llm_prompt
-                )
-                truncated_code = (
-                    fixed_code[:500] + "..." if len(fixed_code) > 500 else fixed_code
-                )
+                # Log successful response (MANDATORY per course requirements)
+                truncated_prompt = full_prompt[:500] + "..." if len(full_prompt) > 500 else full_prompt
+                truncated_code = fixed_code[:500] + "..." if len(fixed_code) > 500 else fixed_code
+
                 log_experiment(
                     agent_name="Corrector",
                     model_used=self.model_name,
@@ -475,48 +541,54 @@ class CorrectorAgent:
                         "file_path": file_path,
                         "attempt": attempt + 1,
                         "code_length": len(fixed_code),
+                        "raw_response_length": len(raw_response),
                     },
                     status="SUCCESS"
                 )
 
                 return fixed_code
 
-            except (ValueError, RuntimeError) as err:
+            except Exception as err:
                 last_error = err
+                logger.warning("LLM call attempt %d failed: %s", attempt + 1, err)
 
-                # Log retry attempt
+                # Log retry attempt (MANDATORY per course requirements)
                 log_experiment(
                     agent_name="Corrector",
                     model_used=self.model_name,
                     action=ActionType.FIX,
                     details={
-                        "input_prompt": f"Retry attempt {attempt + 1}",
-                        "output_response": f"Error: {str(err)}",
+                        "input_prompt": f"Retry attempt {attempt + 1}/{max_retries} for {file_path}",
+                        "output_response": f"Error encountered: {str(err)}",
                         "event": "correction_retry",
                         "file_path": file_path,
                         "attempt": attempt + 1,
-                        "error": str(err),
+                        "error_type": type(err).__name__,
+                        "error_message": str(err),
                     },
                     status="RETRY"
                 )
 
                 # Wait before retry (exponential backoff)
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)
+                    wait_time = 2 ** attempt
+                    time.sleep(wait_time)
 
-        # All retries failed
+        # All retries failed - log failure (MANDATORY per course requirements)
         log_experiment(
             agent_name="Corrector",
             model_used=self.model_name,
             action=ActionType.FIX,
             details={
-                "input_prompt": "All retries exhausted",
+                "input_prompt": f"All {max_retries} retry attempts exhausted for {file_path}",
                 "output_response": f"Final error: {str(last_error)}",
                 "event": "correction_failed",
                 "file_path": file_path,
-                "error": str(last_error),
+                "total_attempts": max_retries,
+                "final_error_type": type(last_error).__name__ if last_error else "Unknown",
+                "final_error_message": str(last_error),
             },
-            status="FAILED"
+            status="FAILURE"
         )
 
         raise RuntimeError(
@@ -537,8 +609,8 @@ class CorrectorAgent:
             model_used=self.model_name,
             action=ActionType.FIX,
             details={
-                "input_prompt": "Reset iteration count",
-                "output_response": "Iteration count reset to 0",
+                "input_prompt": "Reset iteration counter for new file",
+                "output_response": "Iteration count reset to 0 successfully",
                 "event": "iteration_reset",
             },
             status="SUCCESS"
@@ -546,19 +618,22 @@ class CorrectorAgent:
 
 
 def create_corrector_agent(
-    api_key: Optional[str] = None,
     model_name: Optional[str] = None,
     max_iterations: Optional[int] = None,
-    sandbox_dir: Optional[str] = None
+    sandbox_dir: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> CorrectorAgent:
     """
     Factory function to create a CorrectorAgent instance.
 
+    This is the recommended way to create a CorrectorAgent as it handles
+    all configuration from environment variables automatically.
+
     Args:
-        api_key: Google Gemini API key. If None, reads from GEMINI_API_KEY env var.
-        model_name: Name of the Gemini model. If None, reads from GEMINI_MODEL env var.
-        max_iterations: Max iterations for self-healing. If None, reads from MAX_ITERATIONS env var.
-        sandbox_dir: Directory for safe file operations.
+        model_name: Gemini model name. If None, reads from GEMINI_MODEL env var.
+        max_iterations: Max self-healing iterations. If None, reads from MAX_ITERATIONS env var.
+        sandbox_dir: Directory for sandbox file operations.
+        api_key: API key override. If None, reads from GOOGLE_API_KEY env var.
 
     Returns:
         Configured CorrectorAgent instance.
@@ -566,16 +641,16 @@ def create_corrector_agent(
     Example:
         >>> # Using environment variables from .env
         >>> corrector = create_corrector_agent()
-        >>> 
+        >>>
         >>> # Override with custom values
         >>> corrector = create_corrector_agent(
         ...     model_name="gemini-2.5-pro",
-        ...     sandbox_dir="./sandbox"
+        ...     max_iterations=5
         ... )
     """
     return CorrectorAgent(
-        api_key=api_key,
         model_name=model_name,
         max_iterations=max_iterations,
-        sandbox_dir=sandbox_dir
+        sandbox_dir=sandbox_dir,
+        api_key=api_key,
     )
