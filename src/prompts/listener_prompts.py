@@ -23,26 +23,22 @@ from enum import Enum
 
 
 # =============================================================================
-# PROMPT VERSIONS - For A/B Testing
+# PROMPT VERSIONS - Simplified (single version, API compatible)
 # =============================================================================
 
 class PromptVersion(str, Enum):
-    """Track prompt versions for experimentation."""
+    """Prompt version identifier (kept for API compatibility)."""
     V1_BASIC = "v1.0_basic"
-    V1_DETAILED = "v1.1_detailed"
-    V2_OPTIMIZED = "v2.0_optimized"
 
 
 CURRENT_VERSION = PromptVersion.V1_BASIC
 
 
 # =============================================================================
-# SYSTEM PROMPTS
+# SYSTEM PROMPT
 # =============================================================================
 
-LISTENER_SYSTEM_PROMPTS: Dict[PromptVersion, str] = {
-    
-    PromptVersion.V1_BASIC: """You are a Python code auditor specialized in detecting code issues.
+LISTENER_SYSTEM_PROMPT = """You are a Python code auditor specialized in detecting code issues.
 
 YOUR ROLE:
 - Analyze Python source code for bugs, code smells, and violations
@@ -77,62 +73,11 @@ RULES:
 - Focus on actionable issues only
 - Do NOT report style issues in test files
 - Prioritize critical bugs over minor style issues
-- Keep descriptions concise but clear""",
+- Keep descriptions concise but clear"""
 
-    PromptVersion.V1_DETAILED: """You are an expert Python code auditor with deep knowledge of best practices, security, and performance optimization.
-
-YOUR MISSION:
-Thoroughly analyze Python source code to identify issues that could cause:
-- Runtime errors or unexpected behavior
-- Security vulnerabilities
-- Performance degradation
-- Maintainability problems
-
-ANALYSIS CHECKLIST:
-□ Logic Errors: Off-by-one, null references, type mismatches
-□ Exception Handling: Missing try/catch, broad exceptions, silent failures
-□ Security: SQL injection, command injection, hardcoded secrets, unsafe deserialization
-□ Performance: N+1 queries, unnecessary loops, memory leaks, blocking operations
-□ Code Quality: Dead code, duplicate code, overly complex functions
-□ Best Practices: PEP8, type hints, docstrings, naming conventions
-
-SEVERITY GUIDELINES:
-- critical: Will cause crashes, security breaches, or data loss
-- warning: Could cause problems under certain conditions
-- info: Improvement suggestions, style issues
-
-OUTPUT FORMAT:
-Respond ONLY with a valid JSON array:
-```json
-[
-  {
-    "file_path": "relative/path/to/file.py",
-    "line_number": 42,
-    "issue_type": "BUG|SECURITY|PERFORMANCE|STYLE",
-    "severity": "critical|warning|info",
-    "description": "Precise description of what's wrong",
-    "suggested_fix": "Specific code or approach to fix the issue"
-  }
-]
-```
-
-Return [] if no issues found.
-
-IMPORTANT:
-- Line numbers must be accurate
-- One issue per entry (don't combine multiple issues)
-- suggested_fix should be concrete, not vague
-- Ignore issues in comments or docstrings""",
-
-    PromptVersion.V2_OPTIMIZED: """You are a Python code auditor. Analyze code and report issues.
-
-CATEGORIES: BUG, SECURITY, PERFORMANCE, STYLE
-SEVERITY: critical (crashes/security), warning (potential problems), info (suggestions)
-
-OUTPUT (JSON array only):
-[{"file_path":"path","line_number":N,"issue_type":"TYPE","severity":"level","description":"what","suggested_fix":"how"}]
-
-Return [] if clean. Be precise with line numbers. Focus on real issues only."""
+# Keep dict for backward compatibility with existing code
+LISTENER_SYSTEM_PROMPTS: Dict[PromptVersion, str] = {
+    PromptVersion.V1_BASIC: LISTENER_SYSTEM_PROMPT
 }
 
 
@@ -158,12 +103,12 @@ class ListenerPrompts:
         Get the system prompt for the Listener agent.
         
         Args:
-            version: Prompt version to use (for A/B testing)
+            version: Prompt version (kept for API compatibility, ignored)
             
         Returns:
             System prompt string
         """
-        return LISTENER_SYSTEM_PROMPTS.get(version, LISTENER_SYSTEM_PROMPTS[CURRENT_VERSION])
+        return LISTENER_SYSTEM_PROMPT
     
     @staticmethod
     def format_analysis_prompt(

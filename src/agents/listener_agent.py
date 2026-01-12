@@ -37,6 +37,7 @@ from src.prompts.listener_prompts import (
     PromptVersion,
     validate_issue_response,
 )
+from src.prompts.context_manager import optimize_context
 from src.utils.logger import log_experiment, ActionType
 
 if TYPE_CHECKING:
@@ -298,10 +299,13 @@ class ListenerAgent(BaseAgent):
             # Read file content securely
             code = safe_read(file_path, sandbox)
             
+            # Optimize code for LLM (remove comments/docstrings to save tokens)
+            optimized_code = optimize_context(code)
+            
             # Get prompts
             system_prompt = ListenerPrompts.get_system_prompt(self.prompt_version)
             user_prompt = ListenerPrompts.format_analysis_prompt(
-                code=code,
+                code=optimized_code,
                 file_path=rel_path
             )
             
