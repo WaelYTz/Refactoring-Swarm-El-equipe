@@ -33,6 +33,7 @@ from src.prompts.corrector_prompts import (
     validate_python_syntax,
     extract_code_from_response,
 )
+from src.prompts.context_manager import optimize_context
 from src.tools import (
     SandboxValidator,
     SecurityError,
@@ -202,13 +203,16 @@ class CorrectorAgent:
         """
         # Extract issues from audit findings
         issues = audit_findings.get("issues", [])
+        
+        # Optimize code for LLM (remove comments/docstrings to save tokens)
+        optimized_code = optimize_context(original_code)
 
         # Use prompts from corrector_prompts.py
         if error_logs:
             # Self-healing mode: use self-healing prompt
             error_logs_list = [error_logs] if isinstance(error_logs, str) else error_logs
             return CorrectorPrompts.format_self_healing_prompt(
-                code=original_code,
+                code=optimized_code,
                 issues=issues,
                 error_logs=error_logs_list,
                 file_path=file_path,
@@ -217,7 +221,7 @@ class CorrectorAgent:
 
         # Normal correction mode
         return CorrectorPrompts.format_correction_prompt(
-            code=original_code,
+            code=optimized_code,
             issues=issues,
             file_path=file_path
         )

@@ -6,21 +6,22 @@ Contains all system prompts, templates, and context management for the swarm age
 This module provides:
 - System prompts for each agent (Listener, Corrector, Validator)
 - Parameterized prompt templates with {code}, {issues}, {file_path} placeholders
-- Context management utilities (chunking, token counting)
+- Context optimization (remove comments/docstrings to save tokens)
 - Prompt versioning for A/B testing
 
 Module Structure:
 - listener_prompts.py:  Auditor analysis prompts for code issue detection
 - corrector_prompts.py: Fixer prompts with issue context for code correction
 - validator_prompts.py: Test validation prompts for verifying fixes
-- context_manager.py:   Code chunking and token management utilities
+- context_manager.py:   Code optimization and token management utilities
 
 Usage:
     from src.prompts import (
         ListenerPrompts,
         CorrectorPrompts, 
         ValidatorPrompts,
-        ContextManager
+        optimize_context,
+        prepare_code_for_ai
     )
     
     # Get system prompt for listener agent
@@ -32,8 +33,13 @@ Usage:
         file_path="src/main.py"
     )
     
-    # Manage context for large codebases
-    chunks = ContextManager.chunk_code(large_code, max_tokens=4000)
+    # Optimize code before sending to AI (removes comments/docstrings)
+    clean_code = optimize_context(large_code)
+    
+    # Or use the all-in-one function
+    result = prepare_code_for_ai(code, file_path="src/main.py")
+    if result['fits_in_context']:
+        send_to_gemini(result['optimized_code'])
 
 Author: Yacine (Prompt Engineer)
 """
@@ -55,7 +61,13 @@ from src.prompts.validator_prompts import (
     extract_generated_tests,
     should_trigger_self_healing
 )
-# from src.prompts.context_manager import ContextManager
+from src.prompts.context_manager import (
+    optimize_context,
+    count_tokens,
+    is_context_too_large,
+    prepare_code_for_ai,
+    get_optimization_stats
+)
 
 __all__ = [
     "ListenerPrompts",
@@ -72,7 +84,11 @@ __all__ = [
     "extract_error_logs",
     "extract_generated_tests",
     "should_trigger_self_healing",
-    # "ContextManager",
+    "optimize_context",
+    "count_tokens",
+    "is_context_too_large",
+    "prepare_code_for_ai",
+    "get_optimization_stats",
 ]
 
 # Prompt version tracking for A/B testing

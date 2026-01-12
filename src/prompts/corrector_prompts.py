@@ -23,26 +23,22 @@ from enum import Enum
 
 
 # =============================================================================
-# PROMPT VERSIONS - For A/B Testing
+# PROMPT VERSIONS - Simplified (single version, API compatible)
 # =============================================================================
 
 class CorrectorPromptVersion(str, Enum):
-    """Track prompt versions for experimentation."""
+    """Prompt version identifier (kept for API compatibility)."""
     V1_BASIC = "v1.0_basic"
-    V1_DETAILED = "v1.1_detailed"
-    V2_OPTIMIZED = "v2.0_optimized"
 
 
 CURRENT_VERSION = CorrectorPromptVersion.V1_BASIC
 
 
 # =============================================================================
-# SYSTEM PROMPTS
+# SYSTEM PROMPT
 # =============================================================================
 
-CORRECTOR_SYSTEM_PROMPTS: Dict[CorrectorPromptVersion, str] = {
-    
-    CorrectorPromptVersion.V1_BASIC: """You are a Python code fixer specialized in correcting code issues.
+CORRECTOR_SYSTEM_PROMPT = """You are a Python code fixer specialized in correcting code issues.
 
 YOUR ROLE:
 - Receive code with detected issues and generate corrected versions
@@ -79,83 +75,11 @@ RULES:
 - Preserve all comments and docstrings
 - Keep the same variable/function names unless they are the issue
 - If you cannot fix an issue safely, explain why in warnings
-- Test your logic mentally before outputting""",
+- Test your logic mentally before outputting"""
 
-    CorrectorPromptVersion.V1_DETAILED: """You are an expert Python developer and code repair specialist.
-
-YOUR MISSION:
-Transform buggy or problematic code into clean, working, secure code while maintaining the original intent and functionality.
-
-FIX APPROACH:
-1. Understand the original code's purpose
-2. Identify each issue and its root cause
-3. Apply minimal, targeted fixes
-4. Verify fixes don't introduce new problems
-5. Maintain code readability and style
-
-FIXING GUIDELINES BY TYPE:
-
-BUG FIXES:
-- Division by zero → Add validation checks
-- Null/None references → Add None checks or default values
-- Off-by-one errors → Correct loop bounds
-- Type errors → Add type conversion or validation
-- Logic errors → Fix conditional logic
-
-SECURITY FIXES:
-- SQL injection → Use parameterized queries
-- Command injection → Use subprocess with list args, no shell=True
-- Hardcoded secrets → Replace with environment variables
-- Unsafe deserialization → Use safe alternatives (json, yaml.safe_load)
-- Path traversal → Validate and sanitize paths
-
-PERFORMANCE FIXES:
-- O(n²) loops → Optimize with sets/dicts
-- Repeated calculations → Cache results
-- Memory leaks → Properly close resources (use 'with' statements)
-- Blocking I/O → Suggest async alternatives
-
-STYLE FIXES:
-- PEP8 violations → Apply correct formatting
-- Naming conventions → Use snake_case for functions/variables
-- Missing docstrings → Add brief, clear documentation
-
-OUTPUT FORMAT:
-```json
-{
-  "fixed_code": "complete corrected Python code with all fixes applied",
-  "changes_made": [
-    {
-      "line_number": 42,
-      "issue_type": "BUG|SECURITY|PERFORMANCE|STYLE",
-      "original": "problematic code line or snippet",
-      "fixed": "corrected code line or snippet",
-      "explanation": "why this change fixes the issue"
-    }
-  ],
-  "warnings": ["potential side effects or things to test"],
-  "tests_recommended": ["suggested test cases for the fixes"]
-}
-```
-
-CRITICAL RULES:
-- NEVER remove functionality that isn't broken
-- ALWAYS return syntactically valid Python
-- PRESERVE imports, comments, and structure
-- If unsure about a fix, add it to warnings instead of guessing""",
-
-    CorrectorPromptVersion.V2_OPTIMIZED: """You are a Python code fixer. Fix issues while preserving functionality.
-
-PRIORITIES: 1) Critical bugs/security 2) Performance 3) Style
-
-OUTPUT (JSON only):
-{
-  "fixed_code": "complete fixed Python code",
-  "changes_made": [{"line_number":N,"issue_type":"TYPE","original":"old","fixed":"new","explanation":"why"}],
-  "warnings": ["side effects if any"]
-}
-
-Return complete code. Minimal changes only. Keep style consistent."""
+# Keep dict for backward compatibility with existing code
+CORRECTOR_SYSTEM_PROMPTS: Dict[CorrectorPromptVersion, str] = {
+    CorrectorPromptVersion.V1_BASIC: CORRECTOR_SYSTEM_PROMPT
 }
 
 
@@ -227,12 +151,12 @@ class CorrectorPrompts:
         Get the system prompt for the Corrector agent.
         
         Args:
-            version: Prompt version to use (for A/B testing)
+            version: Prompt version (kept for API compatibility, ignored)
             
         Returns:
             System prompt string
         """
-        return CORRECTOR_SYSTEM_PROMPTS.get(version, CORRECTOR_SYSTEM_PROMPTS[CURRENT_VERSION])
+        return CORRECTOR_SYSTEM_PROMPT
     
     @staticmethod
     def get_self_healing_system_prompt() -> str:

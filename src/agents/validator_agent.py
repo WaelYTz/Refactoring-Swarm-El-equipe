@@ -51,6 +51,7 @@ from src.prompts.validator_prompts import (
     extract_generated_tests,
     should_trigger_self_healing,
 )
+from src.prompts.context_manager import optimize_context
 from src.utils.logger import log_experiment, ActionType
 
 if TYPE_CHECKING:
@@ -299,6 +300,9 @@ class ValidatorAgent(BaseAgent):
             Generated test code as string, or None if generation failed
         """
         try:
+            # Optimize code for LLM (remove comments/docstrings to save tokens)
+            optimized_code = optimize_context(code)
+            
             # Get system prompt
             system_prompt = ValidatorPrompts.get_test_generation_system_prompt()
             
@@ -317,7 +321,7 @@ FILE: {file_path}
 
 CODE TO TEST:
 ```python
-{code}
+{optimized_code}
 ```
 
 For EACH function, you must:

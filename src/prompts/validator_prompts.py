@@ -23,26 +23,22 @@ from enum import Enum
 
 
 # =============================================================================
-# PROMPT VERSIONS - For A/B Testing
+# PROMPT VERSIONS - Simplified (single version, API compatible)
 # =============================================================================
 
 class ValidatorPromptVersion(str, Enum):
-    """Track prompt versions for experimentation."""
+    """Prompt version identifier (kept for API compatibility)."""
     V1_BASIC = "v1.0_basic"
-    V1_DETAILED = "v1.1_detailed"
-    V2_OPTIMIZED = "v2.0_optimized"
 
 
 CURRENT_VERSION = ValidatorPromptVersion.V1_BASIC
 
 
 # =============================================================================
-# SYSTEM PROMPTS
+# SYSTEM PROMPT
 # =============================================================================
 
-VALIDATOR_SYSTEM_PROMPTS: Dict[ValidatorPromptVersion, str] = {
-    
-    ValidatorPromptVersion.V1_BASIC: """You are a Python code validator and test specialist.
+VALIDATOR_SYSTEM_PROMPT = """You are a Python code validator and test specialist.
 
 YOUR ROLE:
 - Verify that code fixes are correct and don't break functionality
@@ -92,111 +88,11 @@ RULES:
 - Be thorough but fair in validation
 - Generate meaningful tests, not trivial ones
 - Clearly explain any failures
-- Focus on functional correctness over style""",
+- Focus on functional correctness over style"""
 
-    ValidatorPromptVersion.V1_DETAILED: """You are an expert Python test engineer and code reviewer.
-
-YOUR MISSION:
-Rigorously validate code fixes to ensure they are correct, complete, and don't introduce new problems.
-
-VALIDATION PHASES:
-
-PHASE 1 - SYNTAX CHECK:
-- Verify code compiles without SyntaxError
-- Check all imports are valid
-- Ensure no obvious typos or missing colons
-
-PHASE 2 - FIX VERIFICATION:
-For each reported issue:
-- Confirm the problematic code was changed
-- Verify the fix addresses the root cause
-- Check the fix is implemented correctly
-
-PHASE 3 - REGRESSION TESTING:
-- Ensure original functionality is preserved
-- Test boundary conditions and edge cases
-- Verify error handling still works
-
-PHASE 4 - TEST GENERATION:
-Generate pytest-compatible tests that:
-- Test the specific fixes applied
-- Cover edge cases
-- Can be run automatically
-
-TEST GENERATION GUIDELINES:
-```python
-# Good test example
-def test_divide_handles_zero():
-    \"\"\"Test that divide() raises error for zero divisor.\"\"\"
-    with pytest.raises(ValueError):
-        divide(10, 0)
-
-# Good test example
-def test_user_input_sanitized():
-    \"\"\"Test that SQL injection is prevented.\"\"\"
-    malicious = "'; DROP TABLE users; --"
-    result = build_query(malicious)
-    assert "DROP" not in result
-```
-
-OUTPUT FORMAT:
-```json
-{
-  "validation_passed": true|false,
-  "syntax_valid": true|false,
-  "syntax_errors": ["error details if any"],
-  "fixes_verified": [
-    {
-      "issue_type": "BUG|SECURITY|PERFORMANCE|STYLE",
-      "line_number": 42,
-      "original_issue": "description of original problem",
-      "status": "FIXED|PARTIAL|NOT_FIXED",
-      "explanation": "detailed explanation of validation result"
-    }
-  ],
-  "tests_generated": [
-    {
-      "test_name": "test_descriptive_name",
-      "test_code": "complete pytest function code",
-      "purpose": "what this test validates",
-      "expected_result": "PASS|FAIL"
-    }
-  ],
-  "regressions_found": [
-    {
-      "location": "function or line affected",
-      "description": "what functionality broke",
-      "severity": "critical|warning|info",
-      "evidence": "how you detected this"
-    }
-  ],
-  "error_logs": ["detailed error messages for self-healing loop"],
-  "recommendation": "APPROVE|REQUEST_CHANGES|REJECT",
-  "summary": "brief overall assessment"
-}
-```
-
-CRITICAL RULES:
-- Never approve code with syntax errors
-- Always verify EVERY reported fix
-- Generate at least one test per fix
-- Be specific in error_logs for self-healing""",
-
-    ValidatorPromptVersion.V2_OPTIMIZED: """You are a Python code validator. Verify fixes and generate tests.
-
-CHECK: 1) Syntax valid 2) Fixes correct 3) No regressions
-
-OUTPUT (JSON only):
-{
-  "validation_passed": true|false,
-  "syntax_valid": true|false,
-  "fixes_verified": [{"issue_type":"TYPE","line_number":N,"status":"FIXED|PARTIAL|NOT_FIXED","explanation":"why"}],
-  "tests_generated": [{"test_name":"name","test_code":"code","purpose":"what"}],
-  "error_logs": ["errors for retry if failed"],
-  "recommendation": "APPROVE|REQUEST_CHANGES|REJECT"
-}
-
-Be thorough. Generate useful tests. Clear error messages for failures."""
+# Keep dict for backward compatibility with existing code
+VALIDATOR_SYSTEM_PROMPTS: Dict[ValidatorPromptVersion, str] = {
+    ValidatorPromptVersion.V1_BASIC: VALIDATOR_SYSTEM_PROMPT
 }
 
 
@@ -269,12 +165,12 @@ class ValidatorPrompts:
         Get the system prompt for the Validator agent.
         
         Args:
-            version: Prompt version to use (for A/B testing)
+            version: Prompt version (kept for API compatibility, ignored)
             
         Returns:
             System prompt string
         """
-        return VALIDATOR_SYSTEM_PROMPTS.get(version, VALIDATOR_SYSTEM_PROMPTS[CURRENT_VERSION])
+        return VALIDATOR_SYSTEM_PROMPT
     
     @staticmethod
     def get_test_generation_system_prompt() -> str:
