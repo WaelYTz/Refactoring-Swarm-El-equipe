@@ -75,7 +75,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 # Import agents
-from src.agents import ListenerAgent, CorrectorAgentWrapper, ValidatorAgent
+from src.agents import ListenerAgent, CorrectorAgent, ValidatorAgent
 
 load_dotenv()
 
@@ -472,7 +472,7 @@ def main():
     # Register agents
     try:
         orchestrator.register_agent(AgentRole.LISTENER, ListenerAgent(verbose=args.verbose))
-        orchestrator.register_agent(AgentRole.CORRECTOR, CorrectorAgentWrapper(verbose=args.verbose))
+        orchestrator.register_agent(AgentRole.CORRECTOR, CorrectorAgent(verbose=args.verbose))
         orchestrator.register_agent(AgentRole.VALIDATOR, ValidatorAgent(verbose=args.verbose))
         print("✅ All agents registered successfully")
     except Exception as e:

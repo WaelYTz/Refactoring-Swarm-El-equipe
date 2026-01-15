@@ -19,7 +19,7 @@ Key Features:
 - Structured JSON response parsing
 - Scientific logging for A/B testing and analysis
 - Environment variable support for configuration
-- Fully compatible with BaseAgent interface via CorrectorAgentWrapper
+- Inherits from BaseAgent interface for orchestrator compatibility
 
 Architecture (Execution Graph):
     LISTENER (Auditor) → CORRECTOR (this agent) → VALIDATOR (Judge)
@@ -38,16 +38,17 @@ IMPORTANT - LOGGING PROTOCOL (MANDATORY per course requirements):
     - ActionType.DEBUG for debugging
     - ActionType.GENERATION for code generation
 
-Constructor Compatibility:
-    This class is designed to be instantiated WITHOUT api_key parameter.
-    API key is read from environment variable GOOGLE_API_KEY.
-    
-    Example from corrector_wrapper.py:
-        self._corrector = CorrectorAgent(model_name=model, max_iterations=10)
+Constructor Parameters:
+    - name: Agent identifier for logging
+    - model_name: Gemini model to use (default from GEMINI_MODEL env var)
+    - max_iterations: Max self-healing iterations (default from MAX_ITERATIONS env var)
+    - sandbox_dir: Optional directory for sandbox file operations
+    - api_key: Optional override (reads from GOOGLE_API_KEY env var if not provided)
+    - verbose: Whether to print progress messages
 
 Author: Corrector Agent Team Member
 Course: IGL Lab 2025-2026 - ESI Algiers
-Version: 2.1.0 (LangChain version)
+Version: 2.2.0 (BaseAgent inheritance version)
 """
 
 import json
@@ -56,13 +57,16 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
 
 from dotenv import load_dotenv
 
 # LangChain for LLM integration (consistent with other agents)
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
+
+# Import base agent interface (Lead Dev's interface)
+from src.agents.base_agent import BaseAgent
 
 # Import prompts from corrector_prompts.py (by Prompt Engineer Yacine)
 from src.prompts.corrector_prompts import (
@@ -83,8 +87,12 @@ from src.tools import (
     SecurityError,
     safe_read,
     safe_write,
+    list_python_files,
 )
 from src.tools.code_analyzer import run_pylint, PylintResultDict
+
+if TYPE_CHECKING:
+    from main import SwarmContext, AgentRole, SwarmState
 
 # Load environment variables from .env file at module load
 load_dotenv()
@@ -93,7 +101,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-class CorrectorAgent:
+class CorrectorAgent(BaseAgent):
     """
     The Corrector Agent (The Fixer) transforms buggy code into clean code.
 
@@ -131,19 +139,22 @@ class CorrectorAgent:
 
     def __init__(
         self,
+        name: str = "Corrector_Agent",
         model_name: Optional[str] = None,
         max_iterations: Optional[int] = None,
         sandbox_dir: Optional[str] = None,
         api_key: Optional[str] = None,
+        verbose: bool = True,
     ) -> None:
         """
         Initialize the Corrector Agent.
 
         IMPORTANT: This constructor is designed to work without api_key parameter.
         The API key is read from environment variables (GOOGLE_API_KEY per course requirements).
-        This is required for compatibility with CorrectorAgentWrapper.
+        This is compatible with BaseAgent interface.
 
         Args:
+            name: Human-readable agent name for identification and logging.
             model_name: Gemini model to use. Default reads from GEMINI_MODEL env var
                        or falls back to "gemini-2.5-flash".
             max_iterations: Maximum self-healing loop iterations. Default reads from
@@ -151,10 +162,20 @@ class CorrectorAgent:
             sandbox_dir: Optional directory for sandbox file operations.
             api_key: Optional API key override. If None, reads from GOOGLE_API_KEY
                     (per course requirements) or GEMINI_API_KEY (fallback).
+            verbose: Whether to print progress messages (default: True).
 
         Raises:
             ValueError: If no API key is available (not in env and not provided).
         """
+        # Load model name from parameter or environment
+        self.model_name = model_name or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        
+        # Call parent constructor with name and model
+        super().__init__(name=name, model=self.model_name)
+        
+        # Store verbose flag
+        self.verbose = verbose
+        
         # Load API key from environment (primary) or parameter (fallback)
         # Course requirements specify GOOGLE_API_KEY
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
@@ -217,6 +238,155 @@ class CorrectorAgent:
         except Exception as e:
             logger.exception("Failed to initialize LLM: %s", e)
             raise ValueError(f"Failed to initialize Gemini LLM: {e}") from e
+
+    @property
+    def role(self) -> "AgentRole":
+        """Return the agent's role in the swarm."""
+        from main import AgentRole
+        return AgentRole.CORRECTOR
+
+    def run(self, context: "SwarmContext") -> "SwarmContext":
+        """
+        Execute the correction phase.
+        
+        This is the main entry point called by the Orchestrator.
+        Implements the BaseAgent interface.
+        
+        Args:
+            context: The shared SwarmContext with all pipeline state
+            
+        Returns:
+            The modified SwarmContext after correction
+        """
+        from main import SwarmState
+        
+        logger.info("=" * 80)
+        logger.info("CORRECTOR AGENT STARTING - Iteration %d", context.iteration)
+        logger.info("=" * 80)
+        
+        if self.verbose:
+            print(f"\n🔧 Corrector Agent (Fixer) starting - Iteration {context.iteration}")
+        
+        # Update context state
+        context.current_state = SwarmState.FIXING
+        context.current_agent = self.role
+        
+        # Reset iteration count for new correction phase
+        self.reset_iteration_count()
+        
+        # Initialize sandbox if not already set
+        if self.sandbox is None:
+            self.sandbox = SandboxValidator(context.target_dir)
+        
+        try:
+            # Get all Python files in target directory
+            python_files = list_python_files(context.target_dir, self.sandbox)
+            
+            if not python_files:
+                logger.warning("No Python files found in target directory")
+                context.current_state = SwarmState.FIX_SUCCESS
+                return context
+            
+            if self.verbose:
+                print(f"   Found {len(python_files)} Python files to process")
+            
+            # Process each file with detected issues
+            files_fixed = 0
+            for file_path in python_files:
+                # Read the original code
+                original_code = safe_read(file_path, self.sandbox)
+                if original_code is None:
+                    logger.warning("Could not read file: %s", file_path)
+                    continue
+                
+                # Get issues for this file from context
+                file_issues = [
+                    issue for issue in context.detected_issues
+                    if issue.get("file", "") == file_path or issue.get("path", "") == file_path
+                ]
+                
+                if not file_issues and not context.test_error_logs:
+                    logger.debug("No issues detected for file: %s", file_path)
+                    continue
+                
+                # Build audit findings from detected issues
+                audit_findings = {
+                    "issues": file_issues,
+                    "file_path": file_path,
+                }
+                
+                # Get error logs from previous validator run (for self-healing loop)
+                error_logs = "\n".join(context.test_error_logs) if context.test_error_logs else None
+                
+                if self.verbose:
+                    print(f"   🔧 Fixing: {Path(file_path).name} ({len(file_issues)} issues)")
+                
+                try:
+                    # Call the fix_code method to perform the actual correction
+                    fixed_code = self.fix_code(
+                        file_path=file_path,
+                        original_code=original_code,
+                        audit_findings=audit_findings,
+                        error_logs=error_logs
+                    )
+                    
+                    # Write the fixed code back to the file
+                    if fixed_code and fixed_code != original_code:
+                        safe_write(file_path, fixed_code, self.sandbox)
+                        files_fixed += 1
+                        
+                        # Record the applied fix
+                        context.applied_fixes.append({
+                            "file": file_path,
+                            "issues_fixed": len(file_issues),
+                            "iteration": context.iteration,
+                        })
+                        
+                        if self.verbose:
+                            print(f"      ✅ Fixed {len(file_issues)} issues")
+                    else:
+                        if self.verbose:
+                            print(f"      ℹ️ No changes needed")
+                            
+                except Exception as fix_error:
+                    logger.error("Error fixing file %s: %s", file_path, fix_error)
+                    context.error_log.append(f"Corrector error on {file_path}: {str(fix_error)}")
+            
+            # Update state based on results
+            if files_fixed > 0:
+                context.current_state = SwarmState.VALIDATING  # Ready for validator
+                if self.verbose:
+                    print(f"   ✅ Fixed {files_fixed} files. Ready for validation.")
+            else:
+                context.current_state = SwarmState.FIX_SUCCESS  # No fixes needed
+                if self.verbose:
+                    print(f"   ℹ️ No files needed fixing.")
+            
+            # Clear test error logs after processing (consumed by this iteration)
+            context.test_error_logs.clear()
+            
+            return context
+            
+        except Exception as e:
+            logger.exception("Corrector agent failed: %s", e)
+            context.error_log.append(f"Corrector error: {str(e)}")
+            context.current_state = SwarmState.FIX_FAILED
+            
+            # Log failure
+            log_experiment(
+                agent_name=self.name,
+                model_used=self.model_name,
+                action=ActionType.FIX,
+                details={
+                    "input_prompt": f"Correction phase for {context.target_dir}",
+                    "output_response": f"Error: {str(e)}",
+                    "event": "correction_phase_failed",
+                    "error": str(e),
+                },
+                status="FAILURE"
+            )
+            
+            return context
 
     def get_system_prompt(
         self,
