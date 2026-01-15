@@ -81,7 +81,7 @@ class SwarmState(str, Enum):
     IDLE = "idle"
     LISTENING = "listening"
     ISSUES_DETECTED = "issues_detected"
-    FIXING = "fixing"
+    CORRECTING = "correcting"
     VALIDATING = "validating"
     FIX_SUCCESS = "fix_success"
     FIX_FAILED = "fix_failed"
@@ -202,7 +202,7 @@ def corrector_node(state: GraphState) -> GraphState:
     if state.get("verbose", True):
         print(f"\n🔧 [CORRECTOR NODE] Fixing issues (Iteration {state['iteration']})...")
     
-    state["current_state"] = SwarmState.FIXING.value
+    state["current_state"] = SwarmState.CORRECTING.value
     state["current_agent"] = AgentRole.CORRECTOR.value
     
     # Get the corrector agent

@@ -133,7 +133,8 @@ class ValidatorAgent(BaseAgent):
                 model=self.model,
                 google_api_key=api_key,
                 temperature=0.2,  # Low temperature for consistent test generation
-                max_output_tokens=4096
+                max_output_tokens=16384,  # Increased for larger test outputs
+                convert_system_message_to_human=True,
             )
             logger.info("Validator LLM initialized: model=%s", self.model)
         except Exception as e:
@@ -251,6 +252,12 @@ class ValidatorAgent(BaseAgent):
         
         for file_path in python_files:
             try:
+                # Skip test files - don't generate tests for tests
+                file_name = Path(file_path).name
+                if file_name.startswith("test_") or file_name.endswith("_test.py"):
+                    logger.debug("Skipping test file: %s", file_path)
+                    continue
+                
                 # Read the code
                 code = safe_read(file_path, sandbox)
                 
@@ -262,6 +269,13 @@ class ValidatorAgent(BaseAgent):
                 test_code = self._generate_tests_for_file(file_path, code, context)
                 
                 if test_code:
+                    # Validate syntax before writing
+                    is_valid, error_msg = self._validate_python_syntax(test_code)
+                    if not is_valid:
+                        logger.error("Generated test has syntax error: %s", error_msg)
+                        context.error_log.append(f"Generated test syntax error: {error_msg}")
+                        continue
+                    
                     # Write test file next to source file
                     test_file_path = self._get_test_file_path(file_path)
                     safe_write(test_file_path, test_code, sandbox)
@@ -336,7 +350,12 @@ Generate complete, runnable pytest code with:
 - Docstrings explaining what each test validates
 - Multiple test cases per function (normal case, edge cases, error cases)
 
-OUTPUT: Complete pytest file ready to run (no JSON, just Python code)."""
+IMPORTANT OUTPUT FORMAT:
+- Output ONLY valid Python code that can be executed directly
+- Do NOT use JSON format
+- Do NOT wrap the code in ```json blocks
+- Start your response with 'import pytest'
+- The code must be syntactically correct Python"""
 
             # Call LLM
             messages = [
@@ -402,6 +421,38 @@ OUTPUT: Complete pytest file ready to run (no JSON, just Python code)."""
         Returns:
             Cleaned Python code
         """
+        # Check if response is JSON and try to extract Python code from it
+        if code.strip().startswith('{') or code.strip().startswith('```json'):
+            # Remove json markdown if present
+            if "```json" in code:
+                code = code.split("```json")[1].split("```")[0]
+            
+            # Try to extract Python code from JSON structure
+            try:
+                import json
+                data = json.loads(code.strip())
+                # Look for common keys that might contain code
+                if isinstance(data, dict):
+                    if "code" in data:
+                        return data["code"]
+                    if "test_code" in data:
+                        return data["test_code"]
+                    # Try to reconstruct from test_cases array
+                    if "test_cases" in data and "imports_needed" in data:
+                        lines = []
+                        for imp in data.get("imports_needed", []):
+                            lines.append(imp)
+                        lines.append("")
+                        for fixture in data.get("fixtures", []):
+                            lines.append(fixture.get("code", ""))
+                            lines.append("")
+                        for test in data.get("test_cases", []):
+                            lines.append(test.get("code", ""))
+                            lines.append("")
+                        return "\n".join(lines)
+            except json.JSONDecodeError:
+                pass  # Not valid JSON, proceed with other cleaning
+        
         # Remove markdown code blocks
         if "```python" in code:
             parts = code.split("```python")
@@ -430,6 +481,23 @@ OUTPUT: Complete pytest file ready to run (no JSON, just Python code)."""
         test_filename = f"test_{source_path.stem}.py"
         test_path = source_path.parent / test_filename
         return str(test_path)
+    
+    def _validate_python_syntax(self, code: str) -> tuple:
+        """
+        Validate Python code syntax.
+        
+        Args:
+            code: Python code to validate
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        import ast
+        try:
+            ast.parse(code)
+            return True, None
+        except SyntaxError as e:
+            return False, f"Syntax error at line {e.lineno}: {e.msg}"
     
     def _run_all_tests(
         self,
@@ -497,7 +565,11 @@ OUTPUT: Complete pytest file ready to run (no JSON, just Python code)."""
             )
             
             if self.verbose:
-                print(f"      ✓ Tests completed: {result['passed']} passed, {result['failed']} failed")
+                errors = result.get('errors', 0)
+                if errors > 0:
+                    print(f"      ❌ Tests had errors: {errors} error(s), {result['passed']} passed, {result['failed']} failed")
+                else:
+                    print(f"      ✓ Tests completed: {result['passed']} passed, {result['failed']} failed")
             
             return result
             

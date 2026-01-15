@@ -28,6 +28,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -111,7 +112,10 @@ def run_pytest(
     # Use -v for verbose output with test names
     # Use --tb=short for shorter tracebacks
     # Use -q for quieter output when not verbose
+    # Use sys.executable -m pytest to ensure correct Python environment
     cmd = [
+        sys.executable,
+        "-m",
         "pytest",
         str(dir_path),
         "--tb=short",
