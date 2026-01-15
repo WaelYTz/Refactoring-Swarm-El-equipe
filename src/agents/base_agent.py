@@ -28,7 +28,7 @@ class BaseAgent(ABC):
         - ValidatorAgent (Tester) - validates fixes
     """
     
-    def __init__(self, name: str, model: str = "gemini-1.5-flash"):
+    def __init__(self, name: str, model: str = "gemini-2.5-flash"):
         """
         Initialize the agent.
         

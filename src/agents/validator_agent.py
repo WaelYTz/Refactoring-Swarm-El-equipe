@@ -91,7 +91,7 @@ class ValidatorAgent(BaseAgent):
     def __init__(
         self,
         name: str = "Validator_Agent",
-        model: str = "gemini-1.5-flash",
+        model: str = "gemini-2.5-flash",
         prompt_version: ValidatorPromptVersion = ValidatorPromptVersion.V1_BASIC,
         generate_tests: bool = True,
         run_existing_tests: bool = True,
@@ -103,7 +103,7 @@ class ValidatorAgent(BaseAgent):
         
         Args:
             name: Agent identifier for logging
-            model: LLM model to use (default: gemini-1.5-flash for free tier)
+            model: LLM model to use (default: gemini-2.5-flash)
             prompt_version: Which prompt version to use (for A/B testing)
             generate_tests: Whether to generate new tests with LLM
             run_existing_tests: Whether to run existing pytest tests

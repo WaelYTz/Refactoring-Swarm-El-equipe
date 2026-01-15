@@ -69,7 +69,7 @@ class ListenerAgent(BaseAgent):
     def __init__(
         self,
         name: str = "Listener_Agent",
-        model: str = "gemini-1.5-flash",
+        model: str = "gemini-2.5-flash",
         prompt_version: PromptVersion = PromptVersion.V1_BASIC,
         use_llm: bool = True,
         use_pylint: bool = True,
@@ -80,7 +80,7 @@ class ListenerAgent(BaseAgent):
         
         Args:
             name: Agent identifier for logging
-            model: LLM model to use (default: gemini-1.5-flash for free tier)
+            model: LLM model to use (default: gemini-2.5-flash)
             prompt_version: Which prompt version to use (for A/B testing)
             use_llm: Whether to use LLM analysis (can disable for testing)
             use_pylint: Whether to run pylint analysis
