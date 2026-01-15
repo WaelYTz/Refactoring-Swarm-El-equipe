@@ -77,6 +77,9 @@ from dotenv import load_dotenv
 # Import agents
 from src.agents import ListenerAgent, CorrectorAgent, ValidatorAgent
 
+# Import LangGraph orchestrator
+from src.graph import LangGraphOrchestrator, get_graph_visualization
+
 load_dotenv()
 
 
@@ -350,6 +353,7 @@ def parse_arguments() -> argparse.Namespace:
         python main.py --target_dir ./my_project
         python main.py --target_dir ./src --max_iterations 5 --verbose
         python main.py --target_dir ./code --dry_run
+        python main.py --show-graph
     """
     parser = argparse.ArgumentParser(
         prog="refactoring-swarm",
@@ -360,6 +364,7 @@ Examples:
   python main.py --target_dir ./my_project
   python main.py --target_dir ./src --max_iterations 5
   python main.py --target_dir ./code --dry_run --verbose
+  python main.py --show-graph
 
 Agent Roles:
   LISTENER   - Analyzes code and detects issues
@@ -368,11 +373,12 @@ Agent Roles:
         """
     )
     
-    # Required arguments
+    # Target directory (required unless --show-graph)
     parser.add_argument(
         "--target_dir", 
         type=str, 
-        required=True,
+        required=False,
+        default=None,
         help="Directory containing code to refactor"
     )
     
@@ -410,11 +416,32 @@ Agent Roles:
         help="Path to save execution report"
     )
     
+    parser.add_argument(
+        "--show-graph",
+        action="store_true",
+        help="Display the LangGraph execution graph and exit"
+    )
+    
+    parser.add_argument(
+        "--use-legacy",
+        action="store_true",
+        help="Use legacy RelayOrchestrator instead of LangGraph"
+    )
+    
     return parser.parse_args()
 
 
 def validate_arguments(args: argparse.Namespace) -> None:
     """Validate CLI arguments and check prerequisites."""
+    
+    # target_dir is required unless --show-graph
+    if not args.show_graph and not args.target_dir:
+        print("❌ Error: --target_dir is required")
+        sys.exit(1)
+    
+    # Skip validation if just showing graph
+    if args.show_graph:
+        return
     
     # Check target directory exists
     if not os.path.exists(args.target_dir):
@@ -448,6 +475,12 @@ def main():
     
     # Parse and validate arguments
     args = parse_arguments()
+    
+    # Show graph visualization if requested
+    if args.show_graph:
+        print(get_graph_visualization())
+        return 0
+    
     validate_arguments(args)
     
     # Display banner
@@ -458,47 +491,89 @@ def main():
     print(f"🔄 Max Iterations: {args.max_iterations}")
     print(f"📢 Verbose: {args.verbose}")
     print(f"🧪 Dry Run: {args.dry_run}")
+    print(f"📊 Orchestrator: {'Legacy' if args.use_legacy else 'LangGraph'}")
     print("=" * 60 + "\n")
     
-    # Initialize context (the "baton" for relay)
-    context = SwarmContext(
-        target_dir=os.path.abspath(args.target_dir),
-        max_iterations=args.max_iterations
-    )
-    
-    # Initialize orchestrator
-    orchestrator = RelayOrchestrator(context, verbose=args.verbose)
-    
-    # Register agents
-    try:
-        orchestrator.register_agent(AgentRole.LISTENER, ListenerAgent(verbose=args.verbose))
-        orchestrator.register_agent(AgentRole.CORRECTOR, CorrectorAgent(verbose=args.verbose))
-        orchestrator.register_agent(AgentRole.VALIDATOR, ValidatorAgent(verbose=args.verbose))
-        print("✅ All agents registered successfully")
-    except Exception as e:
-        print(f"❌ Error: Failed to register agents: {e}")
-        print(f"   Make sure GOOGLE_API_KEY is set in .env file")
-        sys.exit(1)
-    
-    # Run pipeline (unless dry_run)
-    if args.dry_run:
-        print("🧪 DRY RUN MODE - Analysis only, no changes will be made")
-        orchestrator.handover_to(AgentRole.LISTENER)
-        print("✅ Dry run complete - no agents registered yet")
-    else:
-        final_context = orchestrator.run_pipeline()
+    # Use legacy orchestrator if requested
+    if args.use_legacy:
+        # Initialize context (the "baton" for relay)
+        context = SwarmContext(
+            target_dir=os.path.abspath(args.target_dir),
+            max_iterations=args.max_iterations
+        )
         
-        # Print summary
-        print("\n" + "=" * 60)
-        print("📊 EXECUTION SUMMARY")
-        print("=" * 60)
-        print(f"Final State: {final_context.current_state.value}")
-        print(f"Iterations: {final_context.iteration}")
-        print(f"Issues Detected: {len(final_context.detected_issues)}")
-        print(f"Fixes Applied: {len(final_context.applied_fixes)}")
-        if final_context.error_log:
-            print(f"Errors: {len(final_context.error_log)}")
-        print("=" * 60)
+        # Initialize orchestrator
+        orchestrator = RelayOrchestrator(context, verbose=args.verbose)
+        
+        # Register agents
+        try:
+            orchestrator.register_agent(AgentRole.LISTENER, ListenerAgent(verbose=args.verbose))
+            orchestrator.register_agent(AgentRole.CORRECTOR, CorrectorAgent(verbose=args.verbose))
+            orchestrator.register_agent(AgentRole.VALIDATOR, ValidatorAgent(verbose=args.verbose))
+            print("✅ All agents registered successfully")
+        except Exception as e:
+            print(f"❌ Error: Failed to register agents: {e}")
+            print(f"   Make sure GOOGLE_API_KEY is set in .env file")
+            sys.exit(1)
+        
+        # Run pipeline (unless dry_run)
+        if args.dry_run:
+            print("🧪 DRY RUN MODE - Analysis only, no changes will be made")
+            orchestrator.handover_to(AgentRole.LISTENER)
+            print("✅ Dry run complete")
+        else:
+            final_context = orchestrator.run_pipeline()
+            
+            # Print summary
+            print("\n" + "=" * 60)
+            print("📊 EXECUTION SUMMARY")
+            print("=" * 60)
+            print(f"Final State: {final_context.current_state.value}")
+            print(f"Iterations: {final_context.iteration}")
+            print(f"Issues Detected: {len(final_context.detected_issues)}")
+            print(f"Fixes Applied: {len(final_context.applied_fixes)}")
+            if final_context.error_log:
+                print(f"Errors: {len(final_context.error_log)}")
+            print("=" * 60)
+    else:
+        # Use LangGraph orchestrator (default)
+        orchestrator = LangGraphOrchestrator(
+            target_dir=os.path.abspath(args.target_dir),
+            max_iterations=args.max_iterations,
+            verbose=args.verbose
+        )
+        
+        # Register agents
+        try:
+            orchestrator.register_agent("listener", ListenerAgent(verbose=args.verbose))
+            orchestrator.register_agent("corrector", CorrectorAgent(verbose=args.verbose))
+            orchestrator.register_agent("validator", ValidatorAgent(verbose=args.verbose))
+            print("✅ All agents registered successfully (LangGraph)")
+        except Exception as e:
+            print(f"❌ Error: Failed to register agents: {e}")
+            print(f"   Make sure GOOGLE_API_KEY is set in .env file")
+            sys.exit(1)
+        
+        # Run pipeline (unless dry_run)
+        if args.dry_run:
+            print("🧪 DRY RUN MODE - Analysis only")
+            print(get_graph_visualization())
+            print("✅ Dry run complete")
+        else:
+            final_state = orchestrator.run()
+            
+            # Print summary
+            print("\n" + "=" * 60)
+            print("📊 EXECUTION SUMMARY (LangGraph)")
+            print("=" * 60)
+            print(f"Final State: {final_state['current_state']}")
+            print(f"Iterations: {final_state['iteration']}")
+            print(f"Issues Detected: {len(final_state['detected_issues'])}")
+            print(f"Fixes Applied: {len(final_state['applied_fixes'])}")
+            print(f"Healing Attempts: {final_state['healing_attempts']}")
+            if final_state['error_log']:
+                print(f"Errors: {len(final_state['error_log'])}")
+            print("=" * 60)
     
     print("\n✅ MISSION COMPLETE")
     return 0
