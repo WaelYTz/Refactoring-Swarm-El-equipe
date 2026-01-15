@@ -129,7 +129,7 @@ class SwarmContext:
     current_state: SwarmState = SwarmState.IDLE
     current_agent: Optional[AgentRole] = None
     iteration: int = 0
-    max_iterations: int = 3
+    max_iterations: int = 10
     
     # Data passed between agents
     detected_issues: List[Issue] = field(default_factory=list)
@@ -386,8 +386,8 @@ Agent Roles:
     parser.add_argument(
         "--max_iterations",
         type=int,
-        default=3,
-        help="Maximum number of fix iterations (default: 3)"
+        default=10,
+        help="Maximum number of fix iterations (default: 10)"
     )
     
     parser.add_argument(

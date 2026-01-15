@@ -413,7 +413,7 @@ class LangGraphOrchestrator:
     This replaces the manual RelayOrchestrator with a declarative graph.
     """
     
-    def __init__(self, target_dir: str, max_iterations: int = 3, verbose: bool = True):
+    def __init__(self, target_dir: str, max_iterations: int = 10, verbose: bool = True):
         self.target_dir = target_dir
         self.max_iterations = max_iterations
         self.verbose = verbose

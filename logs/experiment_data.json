@@ -231,5 +231,47 @@
             "tests_passed": 10
         },
         "status": "SUCCESS"
+    },
+    {
+        "id": "adb63d00-e015-4904-8dda-7df30e4ed396",
+        "timestamp": "2026-01-15T18:16:12.615038",
+        "agent": "Test_Agent",
+        "model": "gemini-2.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "test.py",
+            "input_prompt": "Analyze this code for quality issues...",
+            "output_response": "Found 3 issues: missing docstrings, no type hints...",
+            "issues_found": 3
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "952dfad0-b5a4-43c3-8afa-8931b246b400",
+        "timestamp": "2026-01-15T18:16:12.648663",
+        "agent": "Test_Auditor",
+        "model": "gemini-2.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "file_analyzed": "test.py",
+            "input_prompt": "Analyze this Python code for quality issues and bugs...",
+            "output_response": "Found 3 issues: missing docstrings, no type hints, and potential division by zero.",
+            "issues_found": 3
+        },
+        "status": "SUCCESS"
+    },
+    {
+        "id": "e8c379fa-b0ba-4cd8-95fb-3b388d0fb40b",
+        "timestamp": "2026-01-15T18:16:12.650661",
+        "agent": "Test_Judge",
+        "model": "gemini-2.5-flash",
+        "action": "CODE_ANALYSIS",
+        "details": {
+            "test_file": "test_code.py",
+            "input_prompt": "Run pytest on this file and report results...",
+            "output_response": "All tests passed successfully. Coverage: 95%",
+            "tests_passed": 10
+        },
+        "status": "SUCCESS"
     }
 ]
