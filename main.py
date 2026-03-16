@@ -428,19 +428,29 @@ Agent Roles:
         help="Use legacy RelayOrchestrator instead of LangGraph"
     )
     
+    parser.add_argument(
+        "--hello",
+        action="store_true",
+        help="Display a greeting and verify system responsiveness"
+    )
+    
     return parser.parse_args()
 
 
 def validate_arguments(args: argparse.Namespace) -> None:
     """Validate CLI arguments and check prerequisites."""
     
-    # target_dir is required unless --show-graph
-    if not args.show_graph and not args.target_dir:
+    # target_dir is required unless --show-graph or --hello
+    if not args.show_graph and not args.hello and not args.target_dir:
         print("❌ Error: --target_dir is required")
         sys.exit(1)
     
     # Skip validation if just showing graph
     if args.show_graph:
+        return
+    
+    # Skip validation if just greeting
+    if args.hello:
         return
     
     # Check target directory exists
@@ -475,6 +485,16 @@ def main():
     
     # Parse and validate arguments
     args = parse_arguments()
+    
+    # Show greeting if requested
+    if args.hello:
+        print("\n" + "=" * 60)
+        print("👋 Hello from Refactoring Swarm!")
+        print("=" * 60)
+        print("✅ System is responsive and ready.")
+        print("💡 Run with --target_dir to start refactoring code.")
+        print("=" * 60 + "\n")
+        return 0
     
     # Show graph visualization if requested
     if args.show_graph:

@@ -8,6 +8,8 @@ of the Refactoring Swarm from buggy code to fixed, tested code.
 import os
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -278,6 +280,37 @@ class TestDataQuality(unittest.TestCase):
             )
 
 
+class TestGreetingFunctionality(unittest.TestCase):
+    """Tests for the --hello greeting command."""
+
+    def test_hello_flag_exits_zero(self):
+        """Test that --hello exits with return code 0."""
+        result = subprocess.run(
+            [sys.executable, "main.py", "--hello"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, "main.py --hello should exit with code 0")
+
+    def test_hello_flag_prints_greeting(self):
+        """Test that --hello outputs a greeting message."""
+        result = subprocess.run(
+            [sys.executable, "main.py", "--hello"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn("Hello", result.stdout, "--hello should print a greeting containing 'Hello'")
+
+    def test_hello_flag_indicates_ready(self):
+        """Test that --hello reports the system as responsive/ready."""
+        result = subprocess.run(
+            [sys.executable, "main.py", "--hello"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn("ready", result.stdout.lower(), "--hello should indicate the system is ready")
+
+
 def run_integration_tests():
     """
     Run all integration tests and return results.
@@ -292,6 +325,7 @@ def run_integration_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestRefactoringSwarmIntegration))
     suite.addTests(loader.loadTestsFromTestCase(TestLoggerValidation))
     suite.addTests(loader.loadTestsFromTestCase(TestDataQuality))
+    suite.addTests(loader.loadTestsFromTestCase(TestGreetingFunctionality))
     
     # Run tests
     runner = unittest.TextTestRunner(verbosity=2)
