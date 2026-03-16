@@ -16,6 +16,56 @@ from pathlib import Path
 from src.utils.logger import ActionType, LOG_FILE
 
 
+class TestCloudDelegate(unittest.TestCase):
+    """Tests for the cloud agent delegation feature."""
+
+    def setUp(self):
+        """Import the orchestrator components under test."""
+        from main import SwarmContext, RelayOrchestrator, AgentRole, SwarmState
+        self.SwarmContext = SwarmContext
+        self.RelayOrchestrator = RelayOrchestrator
+        self.AgentRole = AgentRole
+        self.SwarmState = SwarmState
+
+    def _make_orchestrator(self):
+        context = self.SwarmContext(target_dir=".")
+        return self.RelayOrchestrator(context, verbose=False)
+
+    def test_cloud_delegate_success(self):
+        """cloud_delegate returns 'delegated' status for a valid task."""
+        orch = self._make_orchestrator()
+        result = orch.cloud_delegate("Analyze the codebase and summarize findings")
+        self.assertEqual(result["status"], "delegated")
+        self.assertEqual(result["agent"], self.AgentRole.CLOUD.value)
+        self.assertIn("task", result)
+        self.assertIn("feedback", result)
+        self.assertIn("timestamp", result)
+
+    def test_cloud_delegate_task_preserved(self):
+        """cloud_delegate preserves and strips the task description."""
+        orch = self._make_orchestrator()
+        task = "  run quality checks  "
+        result = orch.cloud_delegate(task)
+        self.assertEqual(result["task"], task.strip())
+
+    def test_cloud_delegate_empty_task(self):
+        """cloud_delegate returns error status for an empty task."""
+        orch = self._make_orchestrator()
+        for bad in ("", "   "):
+            result = orch.cloud_delegate(bad)
+            self.assertEqual(result["status"], "error", f"Expected error for task={bad!r}")
+
+    def test_cloud_role_in_agent_role_enum(self):
+        """AgentRole enum exposes the CLOUD variant."""
+        self.assertIn("cloud", [r.value for r in self.AgentRole])
+
+    def test_cloud_delegate_sets_current_agent(self):
+        """cloud_delegate updates the context's current_agent to CLOUD."""
+        orch = self._make_orchestrator()
+        orch.cloud_delegate("some task")
+        self.assertEqual(orch.context.current_agent, self.AgentRole.CLOUD)
+
+
 class TestRefactoringSwarmIntegration(unittest.TestCase):
     """
     End-to-end integration tests for the Refactoring Swarm system.
@@ -289,6 +339,7 @@ def run_integration_tests():
     suite = unittest.TestSuite()
     
     # Add all test classes
+    suite.addTests(loader.loadTestsFromTestCase(TestCloudDelegate))
     suite.addTests(loader.loadTestsFromTestCase(TestRefactoringSwarmIntegration))
     suite.addTests(loader.loadTestsFromTestCase(TestLoggerValidation))
     suite.addTests(loader.loadTestsFromTestCase(TestDataQuality))

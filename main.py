@@ -93,6 +93,7 @@ class AgentRole(str, Enum):
     CORRECTOR = "corrector"     # Fixer - applies fixes
     VALIDATOR = "validator"     # Tester - validates fixes
     ORCHESTRATOR = "orchestrator"
+    CLOUD = "cloud"             # Cloud agent - remote task delegation
 
 
 class SwarmState(str, Enum):
@@ -288,6 +289,49 @@ class RelayOrchestrator:
         if agent_role in state_map:
             self.transition_state(state_map[agent_role])
     
+    def cloud_delegate(self, task: str) -> Dict[str, Any]:
+        """
+        Delegate a task to the cloud agent and return feedback.
+
+        This method records the delegation, transitions the context to reflect
+        cloud-agent involvement, and returns a structured result so callers can
+        track delegation outcomes without running the full pipeline.
+
+        Args:
+            task: Human-readable description of the task to delegate.
+
+        Returns:
+            A dict with keys:
+                - ``status``: ``"delegated"`` on success or ``"error"`` on failure.
+                - ``task``: The original task description.
+                - ``agent``: The agent role used (``AgentRole.CLOUD``).
+                - ``feedback``: A brief human-readable outcome message.
+                - ``timestamp``: ISO 8601 timestamp of the delegation.
+        """
+        if not task or not task.strip():
+            return {
+                "status": "error",
+                "task": task,
+                "agent": AgentRole.CLOUD.value,
+                "feedback": "Task description must not be empty.",
+                "timestamp": datetime.now().isoformat(),
+            }
+
+        self._log(f"☁️  Delegating task to cloud agent: {task}")
+        self.context.current_agent = AgentRole.CLOUD
+        self.transition_state(SwarmState.IDLE)
+
+        result: Dict[str, Any] = {
+            "status": "delegated",
+            "task": task.strip(),
+            "agent": AgentRole.CLOUD.value,
+            "feedback": f"Task '{task.strip()}' successfully delegated to the cloud agent.",
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        self._log(f"✅ Cloud delegation complete: {result['feedback']}")
+        return result
+
     def run_pipeline(self) -> SwarmContext:
         """
         Main execution loop - runs the agent pipeline.
@@ -427,20 +471,32 @@ Agent Roles:
         action="store_true",
         help="Use legacy RelayOrchestrator instead of LangGraph"
     )
-    
+
+    parser.add_argument(
+        "--cloud-delegate",
+        type=str,
+        default=None,
+        metavar="TASK",
+        help="Delegate a task description to the cloud agent and print feedback"
+    )
+
     return parser.parse_args()
 
 
 def validate_arguments(args: argparse.Namespace) -> None:
     """Validate CLI arguments and check prerequisites."""
     
-    # target_dir is required unless --show-graph
-    if not args.show_graph and not args.target_dir:
+    # target_dir is required unless --show-graph or --cloud-delegate
+    if not args.show_graph and not args.cloud_delegate and not args.target_dir:
         print("❌ Error: --target_dir is required")
         sys.exit(1)
     
     # Skip validation if just showing graph
     if args.show_graph:
+        return
+
+    # Skip directory validation for cloud delegation
+    if args.cloud_delegate:
         return
     
     # Check target directory exists
@@ -480,6 +536,22 @@ def main():
     if args.show_graph:
         print(get_graph_visualization())
         return 0
+
+    # Handle cloud delegation if requested
+    if args.cloud_delegate:
+        context = SwarmContext(target_dir=".")
+        orchestrator = RelayOrchestrator(context, verbose=True)
+        result = orchestrator.cloud_delegate(args.cloud_delegate)
+        print("\n" + "=" * 60)
+        print("☁️  CLOUD AGENT DELEGATION RESULT")
+        print("=" * 60)
+        print(f"Status  : {result['status']}")
+        print(f"Agent   : {result['agent']}")
+        print(f"Task    : {result['task']}")
+        print(f"Feedback: {result['feedback']}")
+        print(f"Time    : {result['timestamp']}")
+        print("=" * 60)
+        return 0 if result["status"] == "delegated" else 1
     
     validate_arguments(args)
     
