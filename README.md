@@ -1,5 +1,12 @@
 # 🤖 The Refactoring Swarm
 
+<p>
+  <img alt="top language" src="https://img.shields.io/github/languages/top/WaelYTz/Refactoring-Swarm-El-equipe?style=flat-square">
+  <img alt="last commit" src="https://img.shields.io/github/last-commit/WaelYTz/Refactoring-Swarm-El-equipe?style=flat-square">
+  <img alt="repo size" src="https://img.shields.io/github/repo-size/WaelYTz/Refactoring-Swarm-El-equipe?style=flat-square">
+</p>
+
+
 > **Multi-Agent AI System for Automated Python Code Refactoring**  
 > IGL Lab 2025-2026 — ESI Algiers
 
